@@ -1,11 +1,10 @@
 enum Pins {
-  PIN_VOLTAGE = A0,
-  PIN_MOSFET = 9
+  PIN_VOLTAGE = A0, // PC0
+  PIN_MOSFET = 9    // PB1
 };
 
-constexpr const unsigned long brakeDuration_ms = 5000ul;
-constexpr const uint16_t triggerVoltage_mv = 12000;    // !TEST!
-constexpr const uint16_t mosfetThreshold_mv = 4000;
+constexpr const uint16_t brakeStepDuration_ms = 4ul; // 256 steps
+constexpr const uint16_t triggerVoltage_mv = 45000;    // !TEST!
 
 uint16_t getTurbineVoltage_mv() {
   return (uint16_t)analogRead(PIN_VOLTAGE) * 54;
@@ -25,24 +24,30 @@ uint16_t getVCC_mv() {
 }
 
 void setup() {
+  pinMode(PIN_MOSFET, OUTPUT);
   digitalWrite(PIN_MOSFET, LOW);
+  TCCR1A = 0x01;
+  TCCR1B = 0x0b;
 }
 
 bool breaking = false;
 void brake() {
-  auto startTime = millis();
+  auto endTime = millis() + (brakeStepDuration_ms * 255);
   breaking = true;
 
+  OCR1A = 0;
+  TCCR1A = 0xc1;  // Enable inverted PWM output 
   do {
-    float brakePct = (float)(millis() - startTime) / brakeDuration_ms;
-    if(brakePct > 1.f) break;
-    const uint8_t duty = brakePct * 255;
-    analogWrite(PIN_MOSFET, duty);
+    auto now = millis();
+    if(now > endTime) break;
+    uint8_t duty = (endTime - now) / brakeStepDuration_ms;
+
+    OCR1A = duty;
   } while(true);
-  digitalWrite(PIN_MOSFET, HIGH);
+  PORTB |= 0x02;  // Constant high on pin_mosfet
+  TCCR1A = 0x01;
 }
 
 void loop() {
-  if(breaking) digitalWrite(PIN_MOSFET, getVCC_mv() > mosfetThreshold_mv);
-  else if(getTurbineVoltage_mv() > triggerVoltage_mv) brake();
+  if(!breaking && getTurbineVoltage_mv() > triggerVoltage_mv) brake();
 }
